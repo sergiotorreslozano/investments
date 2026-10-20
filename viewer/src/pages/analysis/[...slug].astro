@@ -1,0 +1,88 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const analyses = await getCollection('analyses');
+  return analyses.map((analysis) => ({ params: { slug: analysis.slug }, props: { analysis } }));
+}
+
+const { analysis } = Astro.props;
+const { Content, headings } = await render(analysis);
+
+// Extract title from frontmatter or first heading
+const title = analysis.data.title || (headings[0]?.text) || analysis.slug;
+const { date, company, sector, tags } = analysis.data;
+
+// Pre-render sidebar entries
+const allAnalyses = await getCollection('analyses');
+const sidebarEntries = await Promise.all(
+  allAnalyses
+    .sort((a, b) => {
+      const dateA = a.data.date ? new Date(a.data.date).getTime() : 0;
+      const dateB = b.data.date ? new Date(b.data.date).getTime() : 0;
+      return dateB - dateA;
+    })
+    .map(async (a) => {
+      const { headings: h } = await render(a);
+      const t = a.data.title || (h[0]?.text) || a.slug;
+      return { slug: a.slug, title: t, company: a.data.company, sector: a.data.sector, date: a.data.date };
+    })
+);
+---
+<Layout title={title}>
+  <div style="display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; gap: 0;">
+    <aside style="border-right: 1px solid var(--border); padding: 1.5rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; background: var(--bg-elevated);">
+      <h1 style="font-size: 1.25rem; margin: 0 0 1.5rem; border: none; padding: 0;">
+        <a href="/" style="color: var(--text); text-decoration: none;">Investments</a>
+      </h1>
+      <nav>
+        <ul style="list-style: none; padding: 0; margin: 0;">
+          {sidebarEntries.map((a) => (
+            <li style="margin-bottom: 0.5rem;">
+              <a
+                href={`/analysis/${a.slug}`}
+                style={`display: block; padding: 0.625rem 0.75rem; border-radius: 6px; text-decoration: none; ${a.slug === analysis.slug ? 'background: var(--accent); color: var(--bg); font-weight: 500;' : 'color: var(--text-muted);'}`}
+                onmouseover={`this.style.background='${a.slug === analysis.slug ? 'var(--accent-hover)' : 'var(--border)'}'; this.style.color='var(--text)';`}
+                onmouseout={`this.style.background='${a.slug === analysis.slug ? 'var(--accent)' : 'transparent'}'; this.style.color='${a.slug === analysis.slug ? 'var(--bg)' : 'var(--text-muted)'}';`}
+              >
+                <div style="font-weight: 500; font-size: 0.9rem;">{a.title}</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+                  {a.company || a.sector || 'Analysis'}
+                  {a.date && ` • ${new Date(a.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </aside>
+    <main style="padding: 2rem 3rem; max-width: 900px;">
+      <header style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border);">
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; font-size: 0.8rem;">
+          {(company || sector) && (
+            <span style="background: var(--accent); color: var(--bg); padding: 0.25rem 0.625rem; border-radius: 4px; font-weight: 500;">
+              {company || sector}
+            </span>
+          )}
+          {date && (
+            <span style="color: var(--text-muted); align-self: center;">
+              {new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </span>
+          )}
+          {tags && tags.map(tag => (
+            <span style="background: var(--bg-elevated); border: 1px solid var(--border); padding: 0.125rem 0.5rem; border-radius: 4px; color: var(--text-muted);">{tag}</span>
+          ))}
+        </div>
+        <h1 style="margin: 0; font-size: 2.25rem; line-height: 1.2; border: none; padding: 0;">{title}</h1>
+      </header>
+      <article style="font-size: 1rem; line-height: 1.8;">
+        <Content />
+      </article>
+      <footer style="margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: gap: 1rem;">
+        <a href="/" style="color: var(--text-muted); font-size: 0.875rem;">← Back to all analyses</a>
+        <a href={`https://github.com/sergiotorreslozano/investments/blob/main/analysis/${analysis.slug}.md`} target="_blank" rel="noopener" style="color: var(--text-muted); font-size: 0.875rem;">View source →</a>
+      </footer>
+    </main>
+  </div>
+</Layout>
