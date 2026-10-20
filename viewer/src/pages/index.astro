@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import { getCollection } from 'astro:content';
+import { FolderTree } from '../components/FolderTree';
 
 const analyses = await getCollection('analyses');
 
@@ -15,41 +16,84 @@ function extractTitleFromBody(body: string): string | null {
   return match ? match[1].trim() : null;
 }
 
-const sorted = withTitles.sort((a, b) => {
-  const dateA = a.data.date ? new Date(a.data.date).getTime() : 0;
-  const dateB = b.data.date ? new Date(b.data.date).getTime() : 0;
-  return dateB - dateA;
-});
+// Build hierarchical tree from flat slugs
+function buildTree(items: typeof withTitles) {
+  const root: Record<string, any> = { children: [], name: '', path: '', type: 'folder' };
+
+  // Sort items for consistent tree building
+  const sorted = [...items].sort((a, b) => {
+    const dateA = a.data.date ? new Date(a.data.date).getTime() : 0;
+    const dateB = b.data.date ? new Date(b.data.date).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  for (const item of sorted) {
+    const parts = item.slug.split('/');
+    let current = root;
+    let currentPath = '';
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const isFile = i === parts.length - 1;
+
+      let child = current.children.find((c: any) => c.path === currentPath);
+
+      if (!child) {
+        child = {
+          name: isFile ? item.data.title : formatFolderName(part),
+          path: currentPath,
+          type: isFile ? 'file' : 'folder',
+          slug: isFile ? item.slug : undefined,
+          children: isFile ? undefined : [],
+          tags: isFile ? item.data.tags : undefined,
+        };
+        current.children.push(child);
+      } else if (isFile) {
+        // Update file node with title and tags
+        child.name = item.data.title;
+        child.slug = item.slug;
+        child.tags = item.data.tags;
+      }
+      current = child;
+    }
+  }
+
+  // Sort folders alphabetically, files by date (newest first)
+  function sortTree(node: any) {
+    if (node.children) {
+      node.children.sort((a: any, b: any) => {
+        if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+        if (a.type === 'folder') return a.name.localeCompare(b.name);
+        return 0; // files already sorted by date
+      });
+      node.children.forEach(sortTree);
+    }
+  }
+  sortTree(root);
+
+  return root.children;
+}
+
+function formatFolderName(name: string): string {
+  return name
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+const tree = buildTree(withTitles);
 ---
+
 <Layout title="Investments Analysis">
   <div style="display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; gap: 0;">
-    <aside style="border-right: 1px solid var(--border); padding: 1.5rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; background: var(--bg-elevated);">
-      <h1 style="font-size: 1.25rem; margin: 0 0 1.5rem; border: none; padding: 0;">
-        <a href="/" style="color: var(--text); text-decoration: none;">Investments</a>
-      </h1>
-      <nav>
-        <ul style="list-style: none; padding: 0; margin: 0;">
-          {sorted.map((analysis) => (
-            <li style="margin-bottom: 0.5rem;">
-              <a
-                href={`/analysis/${analysis.slug}`}
-                style="display: block; padding: 0.625rem 0.75rem; border-radius: 6px; color: var(--text-muted); transition: all 0.15s; text-decoration: none;"
-                onmouseover="this.style.background='var(--border)'; this.style.color='var(--text)'"
-                onmouseout="this.style.background='transparent'; this.style.color='var(--text-muted)'"
-              >
-                <div style="font-weight: 500; font-size: 0.9rem;">{analysis.data.title}</div>
-                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
-                  {analysis.data.company || analysis.data.sector || 'Analysis'}
-                  {analysis.data.date && ` • ${new Date(analysis.data.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
-                </div>
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--text-muted);">
-        {sorted.length} analyses
-      </div>
+    <aside style="border-right: 1px solid var(--border); overflow-y: auto; position: sticky; top: 0; height: 100vh; background: var(--bg-elevated); display: flex; flex-direction: column;">
+      <header style="padding: 1.5rem; border-bottom: 1px solid var(--border);">
+        <h1 style="font-size: 1.25rem; margin: 0; border: none; padding: 0;">
+          <a href="/" style="color: var(--text); text-decoration: none;">Investments</a>
+        </h1>
+      </header>
+      <FolderTree items={tree} client:visible />
     </aside>
     <main style="padding: 2rem 3rem; max-width: 900px;">
       <header style="margin-bottom: 2rem;">
@@ -57,34 +101,40 @@ const sorted = withTitles.sort((a, b) => {
         <p style="color: var(--text-muted); font-size: 1.1rem; margin: 0;">Personal research & thesis documents</p>
       </header>
       <div style="display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));">
-        {sorted.map((analysis) => (
-          <article style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; transition: border-color 0.15s;"
-            onmouseover="this.style.borderColor='var(--accent)'"
-            onmouseout="this.style.borderColor='var(--border)'"
-          >
-            <h2 style="margin: 0 0 0.5rem; font-size: 1.15rem; border: none; padding: 0;">
-              <a href={`/analysis/${analysis.slug}`} style="color: var(--text); text-decoration: none;">{analysis.data.title}</a>
-            </h2>
-            <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; font-size: 0.8rem;">
-              {(analysis.data.company || analysis.data.sector) && (
-                <span style="background: var(--bg); border: 1px solid var(--border); padding: 0.125rem 0.5rem; border-radius: 4px; color: var(--accent);">
-                  {analysis.data.company || analysis.data.sector}
-                </span>
-              )}
-              {analysis.data.date && (
-                <span style="color: var(--text-muted);">
-                  {new Date(analysis.data.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </span>
-              )}
-              {analysis.data.tags && analysis.data.tags.map(tag => (
-                <span style="background: var(--bg); border: 1px solid var(--border); padding: 0.125rem 0.5rem; border-radius: 4px; color: var(--text-muted);">{tag}</span>
-              ))}
-            </div>
-            <a href={`/analysis/${analysis.slug}`} style="font-size: 0.875rem; font-weight: 500;">Read analysis →</a>
-          </article>
-        ))}
+        {withTitles
+          .sort((a, b) => {
+            const dateA = a.data.date ? new Date(a.data.date).getTime() : 0;
+            const dateB = b.data.date ? new Date(b.data.date).getTime() : 0;
+            return dateB - dateA;
+          })
+          .map((analysis) => (
+            <article style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; transition: border-color 0.15s;"
+              onmouseover="this.style.borderColor='var(--accent)'"
+              onmouseout="this.style.borderColor='var(--border)'"
+            >
+              <h2 style="margin: 0 0 0.5rem; font-size: 1.15rem; border: none; padding: 0;">
+                <a href={`/analysis/${analysis.slug}`} style="color: var(--text); text-decoration: none;">{analysis.data.title}</a>
+              </h2>
+              <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; font-size: 0.8rem;">
+                {(analysis.data.company || analysis.data.sector) && (
+                  <span style="background: var(--bg); border: 1px solid var(--border); padding: 0.125rem 0.5rem; border-radius: 4px; color: var(--accent);">
+                    {analysis.data.company || analysis.data.sector}
+                  </span>
+                )}
+                {analysis.data.date && (
+                  <span style="color: var(--text-muted);">
+                    {new Date(analysis.data.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                )}
+                {analysis.data.tags && analysis.data.tags.map(tag => (
+                  <span style="background: var(--bg); border: 1px solid var(--border); padding: 0.125rem 0.5rem; border-radius: 4px; color: var(--text-muted);">{tag}</span>
+                ))}
+              </div>
+              <a href={`/analysis/${analysis.slug}`} style="font-size: 0.875rem; font-weight: 500;">Read analysis →</a>
+            </article>
+          ))}
       </div>
-      {sorted.length === 0 && (
+      {withTitles.length === 0 && (
         <p style="color: var(--text-muted); text-align: center; padding: 3rem;">
           No analyses found. Add markdown files to <code>analysis/</code> directory.
         </p>

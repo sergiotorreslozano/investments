@@ -1,6 +1,7 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import { getCollection, render } from 'astro:content';
+import { FolderTree } from '../../components/FolderTree';
 
 export async function getStaticPaths() {
   const analyses = await getCollection('analyses');
@@ -14,48 +15,91 @@ const { Content, headings } = await render(analysis);
 const title = analysis.data.title || (headings[0]?.text) || analysis.slug;
 const { date, company, sector, tags } = analysis.data;
 
-// Pre-render sidebar entries
+// Build tree from all analyses
 const allAnalyses = await getCollection('analyses');
-const sidebarEntries = await Promise.all(
-  allAnalyses
-    .sort((a, b) => {
-      const dateA = a.data.date ? new Date(a.data.date).getTime() : 0;
-      const dateB = b.data.date ? new Date(b.data.date).getTime() : 0;
-      return dateB - dateA;
-    })
-    .map(async (a) => {
-      const { headings: h } = await render(a);
-      const t = a.data.title || (h[0]?.text) || a.slug;
-      return { slug: a.slug, title: t, company: a.data.company, sector: a.data.sector, date: a.data.date };
-    })
+const withTitles = await Promise.all(
+  allAnalyses.map(async (a) => {
+    const { headings: h } = await render(a);
+    const t = a.data.title || (h[0]?.text) || a.slug;
+    return { ...a, data: { ...a.data, title: t } };
+  })
 );
+
+// Build hierarchical tree from flat slugs
+function buildTree(items: typeof withTitles) {
+  const root: Record<string, any> = { children: [], name: '', path: '', type: 'folder' };
+
+  const sorted = [...items].sort((a, b) => {
+    const dateA = a.data.date ? new Date(a.data.date).getTime() : 0;
+    const dateB = b.data.date ? new Date(b.data.date).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  for (const item of sorted) {
+    const parts = item.slug.split('/');
+    let current = root;
+    let currentPath = '';
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const isFile = i === parts.length - 1;
+
+      let child = current.children.find((c: any) => c.path === currentPath);
+
+      if (!child) {
+        child = {
+          name: isFile ? item.data.title : formatFolderName(part),
+          path: currentPath,
+          type: isFile ? 'file' : 'folder',
+          slug: isFile ? item.slug : undefined,
+          children: isFile ? undefined : [],
+          tags: isFile ? item.data.tags : undefined,
+        };
+        current.children.push(child);
+      } else if (isFile) {
+        child.name = item.data.title;
+        child.slug = item.slug;
+        child.tags = item.data.tags;
+      }
+      current = child;
+    }
+  }
+
+  function sortTree(node: any) {
+    if (node.children) {
+      node.children.sort((a: any, b: any) => {
+        if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+        if (a.type === 'folder') return a.name.localeCompare(b.name);
+        return 0;
+      });
+      node.children.forEach(sortTree);
+    }
+  }
+  sortTree(root);
+
+  return root.children;
+}
+
+function formatFolderName(name: string): string {
+  return name
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+const tree = buildTree(withTitles);
 ---
+
 <Layout title={title}>
   <div style="display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; gap: 0;">
-    <aside style="border-right: 1px solid var(--border); padding: 1.5rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; background: var(--bg-elevated);">
-      <h1 style="font-size: 1.25rem; margin: 0 0 1.5rem; border: none; padding: 0;">
-        <a href="/" style="color: var(--text); text-decoration: none;">Investments</a>
-      </h1>
-      <nav>
-        <ul style="list-style: none; padding: 0; margin: 0;">
-          {sidebarEntries.map((a) => (
-            <li style="margin-bottom: 0.5rem;">
-              <a
-                href={`/analysis/${a.slug}`}
-                style={`display: block; padding: 0.625rem 0.75rem; border-radius: 6px; text-decoration: none; ${a.slug === analysis.slug ? 'background: var(--accent); color: var(--bg); font-weight: 500;' : 'color: var(--text-muted);'}`}
-                onmouseover={`this.style.background='${a.slug === analysis.slug ? 'var(--accent-hover)' : 'var(--border)'}'; this.style.color='var(--text)';`}
-                onmouseout={`this.style.background='${a.slug === analysis.slug ? 'var(--accent)' : 'transparent'}'; this.style.color='${a.slug === analysis.slug ? 'var(--bg)' : 'var(--text-muted)'}';`}
-              >
-                <div style="font-weight: 500; font-size: 0.9rem;">{a.title}</div>
-                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
-                  {a.company || a.sector || 'Analysis'}
-                  {a.date && ` • ${new Date(a.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
-                </div>
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
+    <aside style="border-right: 1px solid var(--border); overflow-y: auto; position: sticky; top: 0; height: 100vh; background: var(--bg-elevated); display: flex; flex-direction: column;">
+      <header style="padding: 1.5rem; border-bottom: 1px solid var(--border);">
+        <h1 style="font-size: 1.25rem; margin: 0; border: none; padding: 0;">
+          <a href="/" style="color: var(--text); text-decoration: none;">Investments</a>
+        </h1>
+      </header>
+      <FolderTree items={tree} currentSlug={analysis.slug} client:visible />
     </aside>
     <main style="padding: 2rem 3rem; max-width: 900px;">
       <header style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border);">
