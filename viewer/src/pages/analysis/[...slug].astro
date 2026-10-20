@@ -99,7 +99,7 @@ const tree = buildTree(withTitles);
           <a href="/" style="color: var(--text); text-decoration: none;">Investments</a>
         </h1>
       </header>
-      <FolderTree items={tree} currentSlug={analysis.slug} client:visible />
+      <FolderTree items={tree} currentSlug={analysis.slug} client:load />
     </aside>
     <main style="padding: 2rem 3rem; max-width: 900px;">
       <header style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border);">

@@ -93,7 +93,7 @@ const tree = buildTree(withTitles);
           <a href="/" style="color: var(--text); text-decoration: none;">Investments</a>
         </h1>
       </header>
-      <FolderTree items={tree} client:visible />
+      <FolderTree items={tree} client:load />
     </aside>
     <main style="padding: 2rem 3rem; max-width: 900px;">
       <header style="margin-bottom: 2rem;">

@@ -19,6 +19,7 @@ interface UseFolderStateReturn {
   allTags: string[];
   filteredItems: TreeItem[];
   openTo: (slug: string) => void;
+  isHydrated: boolean;
 }
 
 const STORAGE_KEY = 'investments-folder-tree-expanded';
@@ -27,30 +28,37 @@ export function useFolderState(
   items: TreeItem[],
   currentSlug?: string
 ): UseFolderStateReturn {
-  // Initialize expanded from localStorage
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    if (typeof window === 'undefined') return new Set();
+  // Initialize with empty Set on BOTH server and client
+  // This ensures SSR and initial client render match
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Read from localStorage AFTER first render (client-only)
+  useEffect(() => {
+    setIsHydrated(true);
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? new Set(JSON.parse(stored)) : new Set();
+      if (stored) {
+        setExpanded(new Set(JSON.parse(stored)));
+      }
     } catch {
-      return new Set();
+      // Ignore errors
     }
-  });
+  }, []);
 
-  // Persist expanded state
+  // Persist expanded state (only after hydration)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (isHydrated && typeof window !== 'undefined') {
       localStorage.setItem(STORAGE_KEY, JSON.stringify([...expanded]));
     }
-  }, [expanded]);
+  }, [expanded, isHydrated]);
 
-  // Auto-expand to current file on mount
+  // Auto-expand to current file on mount (after hydration)
   useEffect(() => {
-    if (currentSlug) {
+    if (isHydrated && currentSlug) {
       openTo(currentSlug);
     }
-  }, [currentSlug]);
+  }, [currentSlug, isHydrated]);
 
   const toggle = useCallback((path: string) => {
     setExpanded((prev) => {
@@ -62,7 +70,6 @@ export function useFolderState(
   }, []);
 
   const openTo = useCallback((slug: string) => {
-    // Find all parent folders of this slug and expand them
     const pathParts = slug.split('/');
     let currentPath = '';
     const toExpand = new Set<string>();
@@ -86,7 +93,6 @@ export function useFolderState(
     );
   }, []);
 
-  // Extract all unique tags from tree
   const allTags = useMemo(() => {
     const tags = new Set<string>();
     const collect = (nodes: TreeItem[]) => {
@@ -99,7 +105,6 @@ export function useFolderState(
     return Array.from(tags).sort();
   }, [items]);
 
-  // Filter tree based on search and tags
   const filteredItems = useMemo(() => {
     if (!searchQuery && selectedTags.length === 0) return items;
 
@@ -142,5 +147,6 @@ export function useFolderState(
     allTags,
     filteredItems,
     openTo,
+    isHydrated,
   };
 }
